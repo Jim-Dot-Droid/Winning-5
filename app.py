@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,13 +8,16 @@ HISTORY_FILE = "history.csv"
 RESULTS_FILE = "results.csv"
 FLAT_FILE = "sol_balance.txt"
 FIXED_FILE = "fixed_balance.txt"
+MARTI_FILE = "martingale_balance.txt"
+MARTI_BET_FILE = "martingale_bet.txt"
 
 # Constants
 INITIAL_BALANCE = 0.1
 FLAT_BET = 0.01
 FIXED_BET = 0.02
-WINDOW = 20  # last 20 rounds
-MIN_UNDERS_FOR_ABOVE = 14  # threshold for predicting "Above"
+MARTI_BASE_BET = 0.01
+WINDOW = 20
+MIN_UNDERS_FOR_ABOVE = 14
 
 # --- Data helpers ---
 @st.cache_data
@@ -47,7 +49,8 @@ def save_result(prediction, actual):
     update_flat_balance(prediction, actual)
     if prediction == "Above":
         update_fixed_balance(actual)
-
+        update_martingale_balance(actual)
+        
 # --- Balance handlers ---
 def get_flat_balance():
     if os.path.exists(FLAT_FILE):
@@ -60,6 +63,18 @@ def get_fixed_balance():
         with open(FIXED_FILE, "r") as f:
             return float(f.read())
     return INITIAL_BALANCE
+
+def get_martingale_balance():
+    if os.path.exists(MARTI_FILE):
+        with open(MARTI_FILE, "r") as f:
+            return float(f.read())
+    return INITIAL_BALANCE
+
+def get_martingale_bet():
+    if os.path.exists(MARTI_BET_FILE):
+        with open(MARTI_BET_FILE, "r") as f:
+            return float(f.read())
+    return MARTI_BASE_BET
 
 def update_flat_balance(prediction, actual):
     balance = get_flat_balance()
@@ -74,8 +89,24 @@ def update_fixed_balance(actual):
     with open(FIXED_FILE, "w") as f:
         f.write(str(balance))
 
+def update_martingale_balance(actual):
+    balance = get_martingale_balance()
+    bet = get_martingale_bet()
+
+    if actual > 2.0:  # Win
+        balance += bet
+        bet = MARTI_BASE_BET  # Reset to base
+    else:  # Loss
+        balance -= bet
+        bet *= 2  # Double bet after loss
+
+    with open(MARTI_FILE, "w") as f:
+        f.write(str(balance))
+    with open(MARTI_BET_FILE, "w") as f:
+        f.write(str(bet))
+
 def reset_balance():
-    for f in [FLAT_FILE, FIXED_FILE, RESULTS_FILE]:
+    for f in [FLAT_FILE, FIXED_FILE, MARTI_FILE, MARTI_BET_FILE, RESULTS_FILE]:
         if os.path.exists(f):
             os.remove(f)
 
@@ -95,9 +126,8 @@ def predict_from_unders(data, threshold=2.0, window=WINDOW, min_unders_for_above
 
 # --- Streamlit App ---
 def main():
-    st.title("Crash Predictor — Under Count Strategy (Last 20)")
+    st.title("Crash Predictor — Under Count Strategy (Last 20) with Martingale")
 
-    # Sidebar config
     st.sidebar.header("Settings")
     min_unders = st.sidebar.slider("Min unders in last 20 to trigger 'Above' prediction",
                                    min_value=10, max_value=20, value=MIN_UNDERS_FOR_ABOVE, step=1)
@@ -168,7 +198,10 @@ def main():
     st.subheader("💰 SOL Balance Tracker")
     st.metric("Flat Bet Balance (0.01 SOL per 'Above')", f"{get_flat_balance():.4f} SOL")
     st.metric("Fixed Bet Balance (0.02 SOL only when 'Above')", f"{get_fixed_balance():.4f} SOL")
-    st.caption("You start with 0.1 SOL. Fixed and flat bets only happen when the app predicted 'Above' and you record the actual value.")
+    st.metric("Martingale Balance", f"{get_martingale_balance():.4f} SOL")
+    st.metric("Current Martingale Bet", f"{get_martingale_bet():.4f} SOL")
+    st.caption("Martingale doubles bet after loss, resets to base after win. Bets only when 'Above' is predicted and result is recorded.")
 
 if __name__ == "__main__":
     main()
+
